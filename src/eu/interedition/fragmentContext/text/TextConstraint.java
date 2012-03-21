@@ -13,6 +13,8 @@ public class TextConstraint implements Constraint {
 	private int startPos;
 	
 	private int endPos;
+	
+	
 
 	public int getStartPos() {
 		return startPos;

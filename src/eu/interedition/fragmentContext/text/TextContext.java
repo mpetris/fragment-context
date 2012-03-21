@@ -6,6 +6,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.math.*;
 
 import de.tud.kom.stringmatching.shinglecloud.ShingleCloud;
 import de.tud.kom.stringutils.tokenization.CharacterTokenizer;
@@ -17,6 +18,14 @@ public class TextContext implements Context {
 	
 	public static final int DEFAULT_CONTEXTLENGTH = 20;
 
+	/*
+	 * Percentage of any given selection that should be stored.
+	 * If selection is below DEFAULT_CONTEXTLENGTH, then the entire
+	 * selection is stored. Otherwise, only the given percentage below
+	 * of the beginning and end of the selection is used.
+	 */
+	private static double percentStorage = 0.15;
+	
 	public static enum HashType {
 		MD5, SHA, Length
 	};
@@ -25,9 +34,17 @@ public class TextContext implements Context {
 
 	private HashType checkSumType;
 
+	private int totalSelectionLength;
+	
 	String beforeContext;
 
 	String afterContext;
+	
+	String beginSel;
+	
+	String endSel;
+	
+	String totalSelection;
 
 	public TextContext(TextPrimary primary, TextConstraint constraint,
 			HashType checkSumType, int contextLength) {
@@ -42,6 +59,22 @@ public class TextContext implements Context {
 		int afterStart = constraint.getEndPos();
 		int afterEnd = constraint.getEndPos() + contextLength;
 		afterEnd = Math.min(primary.getContent().length(), afterEnd);
+		
+		// Evaluating how much of selected text to store
+		this.totalSelectionLength = primary.getContent().length();
+		int cLength = this.totalSelectionLength;
+		if(this.totalSelectionLength > DEFAULT_CONTEXTLENGTH) {
+			double half = (double)(this.totalSelectionLength / 2);
+			cLength = (int)(Math.floor(half * percentStorage));
+			this.beginSel = primary.getContent().substring(beforeEnd, (beforeEnd + cLength));
+			this.endSel = primary.getContent().substring((afterStart - cLength), afterStart);
+			this.totalSelection = this.beginSel.concat(this.endSel);
+		} else {
+			// Use the entire selection
+			this.beginSel = "";
+			this.endSel = "";
+			this.totalSelection = primary.getContent();
+		}
 		
 		this.beforeContext = primary.getContent().substring(beforeStart, beforeEnd);
 		this.afterContext = primary.getContent().substring(afterStart, afterEnd);
@@ -134,11 +167,9 @@ public class TextContext implements Context {
 		//int startPos = primaryContent.indexOf(this.beforeContext);
 		int startPos = findClosestIndexOf(
 				this.beforeContext, 
-				originalConstraint.getStartPos()-beforeContext.length(), 
+				originalConstraint.getStartPos() - this.beforeContext.length(), 
 				primaryContent);
 		
-		if (startPos < 0)
-			throw new Context.NoMatchFoundException();
 		startPos += this.beforeContext.length();
 		
 		//find text after annotation
@@ -146,10 +177,45 @@ public class TextContext implements Context {
 		int endPos = findClosestIndexOf(
 				this.afterContext, 
 				originalConstraint.getEndPos(), 
-				primaryContent);
+				this.totalSelection);
 		
-		if (endPos < 0)
-			throw new Context.NoMatchFoundException();
+		if (endPos < 0 || startPos < 0) {
+			// search through the selected content
+			
+			int positionTotal = 0;
+			if(this.beginSel.length() > 0 && this.endSel.length() > 0) {
+				int originalPosTotal = (originalConstraint.getStartPos() 
+						+ (originalConstraint.getEndPos() - this.endSel.length()));
+				
+				// search beginning source selection, then end 
+				// selection, respectively
+				int beginTotal = findClosestIndexOf(
+						this.beginSel,
+						originalConstraint.getStartPos(),
+						primaryContent);
+				
+				int afterTotal = findClosestIndexOf(
+						this.endSel,
+						(originalConstraint.getEndPos() - this.endSel.length()),
+						primaryContent);
+				
+				if(Math.abs(positionTotal - originalPosTotal) > 5) {
+					throw new Context.NoMatchFoundException();
+				}
+				
+			} else {
+				// search through total selection
+				positionTotal = findClosestIndexOf(
+						this.totalSelection,
+						originalConstraint.getStartPos(),
+						primaryContent);
+				if(positionTotal < 0)
+					throw new Context.NoMatchFoundException();
+				
+			}
+			
+			
+		}
 		
 		return new TextConstraint(startPos, endPos);
 	}
